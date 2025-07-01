@@ -39,6 +39,7 @@ nvcc -O3 --restrict \
      "${SRC_DIR}/lbm.cu" \
      "${SRC_DIR}/lbm_bcs.cu" \
      "${SRC_DIR}/device_setup.cu" \
+    "${SRC_DIR}/compara_resultados.cu" \
      -lcudadevrt -lcurand -maxrregcount=${MAXRREG} -D${VELOCITY_SET} \
      -o "${EXECUTABLE}"
 

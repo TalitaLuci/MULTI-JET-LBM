@@ -1,67 +1,38 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <cmath>
-#include <map>
-#include "constants.cuh"
+#include "kernels.cuh"
 #include "device_functions.cuh"
 
-void salvarPerfisDeFase(float* d_phi, int NX, int NY, int NZ, int D) {
-    size_t size = NX * NY * NZ;
-    float* h_phi = new float[size];
+__global__ void gpuCollectProfiles(LBMFields lbm, float* axial_profile, float* radial_accum, int* radial_count, const int D) {
+    const int x = threadIdx.x + blockIdx.x * blockDim.x;
+    const int y = threadIdx.y + blockIdx.y * blockDim.y;
+    const int z = threadIdx.z + blockIdx.z * blockDim.z;
 
-    // Copiar phi da GPU para a CPU
-    cudaMemcpy(h_phi, d_phi, sizeof(float) * size, cudaMemcpyDeviceToHost);
+    if (x >= NX || y >= NY || z >= NZ) return;
 
-    // =============================
-    // 1. Perfil axial no centro do jato
-    // =============================
-    std::ofstream out_axial("phi_centerline.csv");
+    const int xc = NX / 2;
+    const int yc = NY / 2;
+    const int idx = gpuIdxGlobal3(x,y,z);
 
-    int xc = NX / 2;
-    int yc = NY / 2;
+    const float phi_val = lbm.phi[idx];
 
-    for (int z = 0; z < NZ; ++z) {
-        int idx = z * NY * NX + yc * NX + xc;
-        float phi_val = h_phi[idx];
-        if (phi_val != 0.0f) {
-            out_axial << static_cast<float>(z) / D << "," << 1.0f / phi_val << std::endl;
+    // --------------------------
+    // Perfil axial no centro
+    // --------------------------
+    if (x == xc && y == yc && phi_val != 0.0f) {
+        axial_profile[z] = 1.0f / phi_val;
+    }
+
+    // --------------------------
+    // Perfil radial médio em z = 12D
+    // --------------------------
+    const int z0 = 12 * D;
+    if (z == z0) {
+        const int dx = x - xc;
+        const int dy = y - yc;
+        const int r_bin = __float2int_rn(sqrtf(dx * dx + dy * dy));  // bin inteiro
+
+        if (r_bin < NZ) {
+            atomicAdd(&radial_accum[r_bin], phi_val);
+            atomicAdd(&radial_count[r_bin], 1);
         }
     }
-
-    out_axial.close();
-    std::cout << "[OK] Arquivo phi_centerline.csv gerado.\n";
-
-    // =============================
-    // 2. Perfil radial médio em z = 12D
-    // =============================
-    int z0 = 12 * D;
-    std::map<int, std::vector<float>> radial_bins;
-
-    for (int y = 0; y < NY; ++y) {
-        for (int x = 0; x < NX; ++x) {
-            int idx = z0 * NY * NX + y * NX + x;
-            float phi_val = h_phi[idx];
-
-            int dx = x - xc;
-            int dy = y - yc;
-            int r_bin = static_cast<int>(std::sqrt(dx * dx + dy * dy));
-
-            radial_bins[r_bin].push_back(phi_val);
-        }
-    }
-
-    std::ofstream out_radial("phi_radial_profile.csv");
-    for (const auto& [r_bin, values] : radial_bins) {
-        float sum = 0.0f;
-        for (float v : values) sum += v;
-        float avg = sum / values.size();
-        float r_over_z = static_cast<float>(r_bin) / static_cast<float>(z0);
-        out_radial << r_over_z << "," << avg << std::endl;
-    }
-
-    out_radial.close();
-    std::cout << "[OK] Arquivo phi_radial_profile.csv gerado.\n";
-
-    delete[] h_phi;
 }

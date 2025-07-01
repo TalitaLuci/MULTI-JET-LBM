@@ -24,3 +24,5 @@ __global__ void gpuEvolvePhaseField(LBMFields d); // AD-based
 // FLUID FIELD EVOLUTION
 // =======================================================================================
 __global__ void gpuMomCollisionStream(LBMFields d); // fused BGK + streaming
+
+__global__ void gpuCollectProfiles(LBMFields d, float* axial_profile, float* radial_accum, int* radial_count, const int D);
