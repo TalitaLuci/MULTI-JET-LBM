@@ -43,6 +43,10 @@ int main(int argc, char* argv[]) {
     cudaMemset(d_radial_count, 0, sizeof(int) * NZ);
 
     auto START_TIME = std::chrono::high_resolution_clock::now();
+    std::vector<float> axial_accum(NZ, 0.0f);
+    std::vector<float> radial_accum(NZ, 0.0f);
+    std::vector<int>   radial_count(NZ, 0);
+
     for (int STEP = 0; STEP <= NSTEPS ; ++STEP) {
         std::cout << "Passo " << STEP << " de " << NSTEPS << " iniciado..." << std::endl;
 
@@ -73,6 +77,9 @@ int main(int argc, char* argv[]) {
 
         // ================================================================================== //
          #define DYNAMIC_SHARED_SIZE 0
+         #define AVERAGING_START 800
+         #define AVERAGING_END 1000
+         #define AVERAGING_SAMPLES ((AVERAGING_END - AVERAGING_START) / MACRO_SAVE + 1)
 
             gpuCollectProfiles<<<numBlocks, threadsPerBlock, DYNAMIC_SHARED_SIZE, mainStream>>>(
                 lbm, d_axial, d_radial_sum, d_radial_count, DIAM
@@ -92,31 +99,46 @@ int main(int argc, char* argv[]) {
             cudaMemcpy(h_radial_sum.data(), d_radial_sum, sizeof(float) * NZ, cudaMemcpyDeviceToHost);
             cudaMemcpy(h_radial_count.data(), d_radial_count, sizeof(int) * NZ, cudaMemcpyDeviceToHost);
 
-            std::ofstream out_axial(SIM_DIR + "/phi_centerline_" + std::to_string(STEP) + ".csv");
-            for (int z = 0; z < NZ; ++z) {
-                if (h_axial[z] > 0.0f)
-                    out_axial << static_cast<float>(z) / DIAM << "," << h_axial[z] << "\n";
-            }
-            out_axial.close();
-
-            std::ofstream out_radial(SIM_DIR + "/phi_radial_profile_" + std::to_string(STEP) + ".csv");
-            for (int r = 0; r < NZ; ++r) {
-                if (h_radial_count[r] > 0) {
-                    float avg = h_radial_sum[r] / h_radial_count[r];
-                    float r_over_z = static_cast<float>(r) / (12.0f * DIAM);
-                    out_radial << r_over_z << "," << avg << "\n";
+            // Acumular os perfis apenas entre os passos definidos
+            if (STEP >= AVERAGING_START && STEP <= AVERAGING_END) {
+                for (int z = 0; z < NZ; ++z) {
+                    if (h_axial[z] > 0.0f) axial_accum[z] += h_axial[z];
+                }
+                for (int r = 0; r < NZ; ++r) {
+                    radial_accum[r] += h_radial_sum[r];
+                    radial_count[r] += h_radial_count[r];
                 }
             }
-            out_radial.close();
 
-            std::cout << "Passo " << STEP << ": Dados salvos em " << SIM_DIR << std::endl;
-
+            // Limpar buffers da GPU
             cudaMemsetAsync(d_axial, 0, sizeof(float) * NZ, mainStream);
             cudaMemsetAsync(d_radial_sum, 0, sizeof(float) * NZ, mainStream);
             cudaMemsetAsync(d_radial_count, 0, sizeof(int) * NZ, mainStream);
         }
+
     }
     auto END_TIME = std::chrono::high_resolution_clock::now();
+
+        // Salvar perfil axial médio
+    std::ofstream out_axial(SIM_DIR + "/phi_centerline.csv");
+    for (int z = 0; z < NZ; ++z) {
+        float phi_avg = axial_accum[z] / AVERAGING_SAMPLES;
+        if (phi_avg > 1e-6f) {
+            out_axial << static_cast<float>(z) / DIAM << "," << 1.0f / phi_avg << "\n";
+        }
+    }
+    out_axial.close();
+
+    // Salvar perfil radial médio
+    std::ofstream out_radial(SIM_DIR + "/phi_radial_profile.csv");
+    for (int r = 0; r < NZ; ++r) {
+        if (radial_count[r] > 0) {
+            float avg = radial_accum[r] / radial_count[r];
+            float r_over_z = static_cast<float>(r) / (12.0f * DIAM);
+            out_radial << r_over_z << "," << avg << "\n";
+        }
+    }
+    out_radial.close();
 
     checkCudaErrors(cudaStreamDestroy(mainStream));
     cleanupDeviceMemory(lbm);

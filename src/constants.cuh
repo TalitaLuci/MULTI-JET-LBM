@@ -27,7 +27,7 @@
 #define BLOCK_SIZE_Z 8
 
 // domain size
-constexpr int MESH = 128;
+constexpr int MESH = 64;
 constexpr int DIAM = 12.8; 
 constexpr int NX   = MESH;
 constexpr int NY   = MESH;
@@ -109,7 +109,7 @@ constexpr float COEFF_FORCE = 0.5f;         // fixed approximation of (1-omega/2
 #endif
 
 #ifdef RUN_MODE
-    constexpr int MACRO_SAVE = 100, NSTEPS = 100000;
+    constexpr int MACRO_SAVE = 100, NSTEPS = 1000;
 #elif defined(SAMPLE_MODE)
     constexpr int MACRO_SAVE = 100, NSTEPS = 1000;
 #elif defined(DEBUG_MODE)
